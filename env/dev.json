@@ -1,0 +1,6 @@
+{
+  "SUPABASE_URL": "https://uqzktlwgzteadqevyiys.supabase.co",
+  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxemt0bHdnenRlYWRxZXZ5aXlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MDQ5OTcsImV4cCI6MjA3NjE4MDk5N30.vFBzBXqz3O51b3imAsAd--OIugzDjD__OtUiQffACss",
+  "SITE_URL": "http://localhost:3000",
+  "ENV": "dev"
+}
