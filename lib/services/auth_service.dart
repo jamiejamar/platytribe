@@ -14,7 +14,7 @@ class AuthService {
 
   Future<void> signInGuest() async {
     final id = const Uuid().v4().replaceAll('-', '');
-    final email = 'guest-$id@guest.local';
+    final email = 'guest-$id@example.com';
     final password = _randPass(24);
     final username = 'platy-${id.substring(0,4)}';
     final res = await supa.auth.signUp(email: email, password: password, data: {'is_guest': true, 'username': username});
