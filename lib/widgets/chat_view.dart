@@ -6,8 +6,8 @@ import '../services/auth_service.dart';
 
 class ChatView extends StatefulWidget {
   final ChatModel chat;
-  final VoidCallback? onSwipeUp;    // 👈 aggiunto
-  final VoidCallback? onSwipeDown;  // 👈 aggiunto
+  final VoidCallback? onSwipeUp;
+  final VoidCallback? onSwipeDown;
 
   const ChatView({
     super.key,
@@ -32,6 +32,33 @@ class _ChatViewState extends State<ChatView>
 
   Future<void> _send() async {
     if (_ctrl.text.trim().isEmpty) return;
+
+    // 🔐 Block if not logged in → show dialog and stop
+    if (_auth.session == null) {
+      if (!mounted) return;
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Sign in required'),
+          content: const Text('You need to log in to post messages.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pushNamed(context, '/login');
+              },
+              child: const Text('Log in'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() => _sending = true);
     try {
       await _svc.sendMessage(widget.chat.id, _ctrl.text.trim());
@@ -90,7 +117,7 @@ class _ChatViewState extends State<ChatView>
                 ),
               ),
 
-              // Messaggi + swipe edge-detect
+              // Messages + swipe edge-detect
               Expanded(
                 child: StreamBuilder<List<MessageModel>>(
                   stream: _svc.streamMessages(widget.chat.id),
@@ -103,8 +130,7 @@ class _ChatViewState extends State<ChatView>
 
                     return NotificationListener<ScrollNotification>(
                       onNotification: (n) {
-                        // Quando siamo a un estremo e l'utente continua a trascinare,
-                        // navighiamo alle pagine adiacenti
+                        // At edge + user keeps dragging → move to adjacent pages
                         if (n.metrics.atEdge) {
                           final delta = (n is ScrollUpdateNotification)
                               ? (n.scrollDelta ?? 0)
@@ -121,12 +147,12 @@ class _ChatViewState extends State<ChatView>
                             widget.onSwipeUp?.call();
                           }
                         }
-                        // su iOS c'è anche l'OverscrollNotification
+                        // iOS overscroll support
                         if (n is OverscrollNotification) {
                           if (n.overscroll < 0) widget.onSwipeDown?.call();
                           if (n.overscroll > 0) widget.onSwipeUp?.call();
                         }
-                        return false; // non bloccare lo scroll della lista
+                        return false;
                       },
                       child: ListView.builder(
                         physics: const BouncingScrollPhysics(),
@@ -149,8 +175,8 @@ class _ChatViewState extends State<ChatView>
                               child: Text(
                                 m.text ?? '',
                                 style: TextStyle(
-                                    color:
-                                        mine ? Colors.white : Colors.white),
+                                  color: mine ? Colors.white : Colors.white,
+                                ),
                               ),
                             ),
                           );
@@ -175,7 +201,7 @@ class _ChatViewState extends State<ChatView>
                       child: TextField(
                         controller: _ctrl,
                         decoration: InputDecoration(
-                          hintText: 'Scrivi qui…',
+                          hintText: 'Type a message…',
                           filled: true,
                           fillColor: Colors.white,
                           contentPadding:
