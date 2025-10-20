@@ -7,6 +7,8 @@ import 'screens/home_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/create_chat_screen.dart';
+import 'screens/signup_screen.dart';
+import 'screens/password_reset_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +29,8 @@ class PlatyTribeApp extends StatelessWidget {
         '/login': (_) => const LoginScreen(),
         '/home': (_) => const HomeScreen(),
         '/chat': (_) => const ChatScreen(),
+        '/signup': (_) => const SignupScreen(),                 // 👈 nuova
+        '/password_reset': (_) => const PasswordResetScreen(), 
         '/settings': (_) => const SettingsScreen(),
         '/create_chat': (_) => const CreateChatScreen(),
       },
