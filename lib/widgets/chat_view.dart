@@ -6,7 +6,15 @@ import '../services/auth_service.dart';
 
 class ChatView extends StatefulWidget {
   final ChatModel chat;
-  const ChatView({super.key, required this.chat});
+  final VoidCallback? onSwipeUp;    // 👈 aggiunto
+  final VoidCallback? onSwipeDown;  // 👈 aggiunto
+
+  const ChatView({
+    super.key,
+    required this.chat,
+    this.onSwipeUp,
+    this.onSwipeDown,
+  });
 
   @override
   State<ChatView> createState() => _ChatViewState();
@@ -82,7 +90,7 @@ class _ChatViewState extends State<ChatView>
                 ),
               ),
 
-              // Messaggi
+              // Messaggi + swipe edge-detect
               Expanded(
                 child: StreamBuilder<List<MessageModel>>(
                   stream: _svc.streamMessages(widget.chat.id),
@@ -92,37 +100,68 @@ class _ChatViewState extends State<ChatView>
                         items.isEmpty) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    return ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                      itemCount: items.length,
-                      itemBuilder: (ctx, i) {
-                        final m = items[i];
-                        final mine = m.userId == _auth.user?.id;
-                        return Align(
-                          alignment: mine
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: mine ? Colors.teal : Colors.black26,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              m.text ?? '',
-                              style: TextStyle(
-                                  color: mine ? Colors.white : Colors.white),
-                            ),
-                          ),
-                        );
+
+                    return NotificationListener<ScrollNotification>(
+                      onNotification: (n) {
+                        // Quando siamo a un estremo e l'utente continua a trascinare,
+                        // navighiamo alle pagine adiacenti
+                        if (n.metrics.atEdge) {
+                          final delta = (n is ScrollUpdateNotification)
+                              ? (n.scrollDelta ?? 0)
+                              : 0.0;
+                          final atTop =
+                              n.metrics.pixels <= n.metrics.minScrollExtent;
+                          final atBottom =
+                              n.metrics.pixels >= n.metrics.maxScrollExtent;
+
+                          if (atTop && delta < 0) {
+                            widget.onSwipeDown?.call();
+                          }
+                          if (atBottom && delta > 0) {
+                            widget.onSwipeUp?.call();
+                          }
+                        }
+                        // su iOS c'è anche l'OverscrollNotification
+                        if (n is OverscrollNotification) {
+                          if (n.overscroll < 0) widget.onSwipeDown?.call();
+                          if (n.overscroll > 0) widget.onSwipeUp?.call();
+                        }
+                        return false; // non bloccare lo scroll della lista
                       },
+                      child: ListView.builder(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                        itemCount: items.length,
+                        itemBuilder: (ctx, i) {
+                          final m = items[i];
+                          final mine = m.userId == _auth.user?.id;
+                          return Align(
+                            alignment: mine
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: mine ? Colors.teal : Colors.black26,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                m.text ?? '',
+                                style: TextStyle(
+                                    color:
+                                        mine ? Colors.white : Colors.white),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     );
                   },
                 ),
               ),
 
-              // Input sempre in basso
+              // Composer
               Padding(
                 padding: EdgeInsets.only(
                   left: 8,
