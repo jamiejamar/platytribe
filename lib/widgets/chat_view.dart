@@ -161,6 +161,7 @@ class _ChatViewState extends State<ChatView>
                         itemBuilder: (ctx, i) {
                           final m = items[i];
                           final mine = m.userId == _auth.user?.id;
+
                           return Align(
                             alignment:
                                 mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -171,11 +172,29 @@ class _ChatViewState extends State<ChatView>
                                 color: mine ? Colors.teal : Colors.black26,
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Text(
-                                m.text ?? '',
-                                style: TextStyle(
-                                  color: mine ? Colors.white : Colors.white,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: mine
+                                    ? CrossAxisAlignment.end
+                                    : CrossAxisAlignment.start,
+                                children: [
+                                  if ((m.authorUsername ?? '').isNotEmpty)
+                                    Text(
+                                      m.authorUsername!,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: mine
+                                            ? Colors.white70
+                                            : Colors.white70,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  Text(
+                                    m.text ?? '',
+                                    style: TextStyle(
+                                      color: mine ? Colors.white : Colors.white,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           );
