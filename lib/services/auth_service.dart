@@ -7,8 +7,21 @@ class AuthService {
   Session? get session => supa.auth.currentSession;
   User? get user => supa.auth.currentUser;
 
-  Future<AuthResponse> signUp(String email, String password) =>
-      supa.auth.signUp(email: email, password: password);
+  // Sign up: crea anche il profilo con username derivato dall'email (non unico)
+  Future<AuthResponse> signUp(String email, String password) async {
+    final res = await supa.auth.signUp(email: email, password: password);
+    final uid = supa.auth.currentUser?.id;
+    if (uid != null) {
+      final base = email.split('@').first; // username “visivo”
+      await supa.from('profiles').upsert({
+        'id': uid,
+        'username': base,
+        'is_guest': false,
+        'display_name': base,
+      });
+    }
+    return res;
+  }
 
   Future<AuthResponse> signIn(String email, String password) =>
       supa.auth.signInWithPassword(email: email, password: password);

@@ -162,9 +162,8 @@ class _ChatViewState extends State<ChatView>
                           final m = items[i];
                           final mine = m.userId == _auth.user?.id;
                           return Align(
-                            alignment: mine
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
+                            alignment:
+                                mine ? Alignment.centerRight : Alignment.centerLeft,
                             child: Container(
                               margin: const EdgeInsets.symmetric(vertical: 4),
                               padding: const EdgeInsets.all(10),
