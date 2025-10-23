@@ -1,4 +1,4 @@
-import 'dart:async'; // Stream/StreamSubscription
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
@@ -12,30 +12,55 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   final _auth = AuthService();
   StreamSubscription<AuthState>? _sub;
-  bool _isRecovery = false; // 👈 se true, portiamo a /password_update
+  bool _isRecovery = false;
 
   @override
   void initState() {
     super.initState();
 
-    // 1) Intercetta l’evento emesso da Supabase quando arrivi dal link email
-    _sub = _auth.onAuthStateChange.listen((state) {
-      if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
+    // 1) Ascolta evento Supabase (arriva dal link email in alcuni casi)
+    _sub = _auth.onAuthStateChange.listen((state) async {
+      if (!mounted) return;
+      if (state.event == AuthChangeEvent.passwordRecovery) {
         _goToPasswordUpdate();
-      } else if (mounted) {
-        setState(() {}); // refresh normale (login/logout)
+      } else {
+        setState(() {}); // normale refresh login/logout
       }
     });
 
-    // 2) Web: se la pagina si apre *già* con #type=recovery nell’URL
-    _checkInitialRecoveryFromUrl();
+    // 2) Gestisci subito URL corrente (web):
+    _handleInitialUrl();
   }
 
-  void _checkInitialRecoveryFromUrl() {
-    // Su Web il link di Supabase aggiunge nel fragment: ...#access_token=...&type=recovery
-    final frag = Uri.base.fragment; // es: "access_token=...&type=recovery&..."
+  Future<void> _handleInitialUrl() async {
+    // a) Fragment: ...#access_token=...&type=recovery
+    final frag = Uri.base.fragment;
     if (frag.contains('type=recovery')) {
       _goToPasswordUpdate();
+      return;
+    }
+
+    // b) Query string: ...?code=XXXX  (o ?token=...&type=recovery)
+    final qp = Uri.base.queryParameters;
+    final code = qp['code'];             // nuovo formato in alcuni flussi
+    final token = qp['token'];           // vecchio formato
+    final type = qp['type'];             // "recovery" se presente
+
+    try {
+      if (code != null && code.isNotEmpty) {
+        // Prova a scambiare il "code" per una sessione
+        await Supabase.instance.client.auth.exchangeCodeForSession(code);
+        _goToPasswordUpdate();
+        return;
+      }
+      if ((type == 'recovery') || (token != null && token.isNotEmpty)) {
+        // In alcuni casi arriva token+type=recovery; su Flutter non sempre serve verifyOtp,
+        // apriamo direttamente la pagina di update (la sessione è già di "recovery").
+        _goToPasswordUpdate();
+        return;
+      }
+    } catch (_) {
+      // Se fallisce lo scambio, rimani nel flow normale (login/guest)
     }
   }
 
@@ -55,11 +80,8 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    // Se siamo in recovery, non forzare redirect a /home
     if (_isRecovery) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     // Nessuna sessione → landing
@@ -92,7 +114,7 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    // Sessione presente → vai a /home (ma non in recovery)
+    // Sessione presente → /home (ma non durante recovery)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_isRecovery) {
         Navigator.pushReplacementNamed(context, '/home');
