@@ -1,35 +1,49 @@
-import 'dart:async'; 
+import 'dart:async'; // Stream/StreamSubscription
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'; // per AuthChangeEvent
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auth_service.dart';
 
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
-
   @override
   State<AuthGate> createState() => _AuthGateState();
 }
 
 class _AuthGateState extends State<AuthGate> {
   final _auth = AuthService();
-  late final Stream<AuthState> _authStream;
   StreamSubscription<AuthState>? _sub;
+  bool _isRecovery = false; // 👈 se true, portiamo a /password_update
 
   @override
   void initState() {
     super.initState();
-    _authStream = _auth.onAuthStateChange;
 
-    // Ascolta cambi di stato (login, logout, password recovery, ecc.)
-    _sub = _authStream.listen((state) {
-      // Se l'utente ha aperto il link di reset → vai alla pagina per impostare la nuova password
+    // 1) Intercetta l’evento emesso da Supabase quando arrivi dal link email
+    _sub = _auth.onAuthStateChange.listen((state) {
       if (state.event == AuthChangeEvent.passwordRecovery && mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          Navigator.pushNamed(context, '/password_update');
-        });
+        _goToPasswordUpdate();
+      } else if (mounted) {
+        setState(() {}); // refresh normale (login/logout)
       }
-      // Aggiorna la UI per riflettere eventuali cambi di sessione
-      if (mounted) setState(() {});
+    });
+
+    // 2) Web: se la pagina si apre *già* con #type=recovery nell’URL
+    _checkInitialRecoveryFromUrl();
+  }
+
+  void _checkInitialRecoveryFromUrl() {
+    // Su Web il link di Supabase aggiunge nel fragment: ...#access_token=...&type=recovery
+    final frag = Uri.base.fragment; // es: "access_token=...&type=recovery&..."
+    if (frag.contains('type=recovery')) {
+      _goToPasswordUpdate();
+    }
+  }
+
+  void _goToPasswordUpdate() {
+    if (!mounted) return;
+    setState(() => _isRecovery = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.pushNamed(context, '/password_update');
     });
   }
 
@@ -41,17 +55,26 @@ class _AuthGateState extends State<AuthGate> {
 
   @override
   Widget build(BuildContext context) {
-    // Nessuna sessione → landing con login / guest
+    // Se siamo in recovery, non forzare redirect a /home
+    if (_isRecovery) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Nessuna sessione → landing
     if (_auth.session == null) {
       return Scaffold(
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('PlatyTribe', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text('PlatyTribe',
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+                onPressed: () =>
+                    Navigator.pushReplacementNamed(context, '/login'),
                 child: const Text('Log in / Sign up'),
               ),
               const SizedBox(height: 12),
@@ -69,9 +92,9 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    // C'è una sessione → vai a /home
+    // Sessione presente → vai a /home (ma non in recovery)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (mounted && !_isRecovery) {
         Navigator.pushReplacementNamed(context, '/home');
       }
     });
