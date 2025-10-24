@@ -18,7 +18,7 @@ class _AuthGateState extends State<AuthGate> {
   void initState() {
     super.initState();
 
-    // 1) Evento emesso da Supabase (arrivo da link email in alcuni casi)
+    // 1️⃣ Ascolta evento emesso da Supabase (arrivo da link email in alcuni casi)
     _sub = _auth.onAuthStateChange.listen((state) async {
       if (!mounted) return;
       if (state.event == AuthChangeEvent.passwordRecovery) {
@@ -28,14 +28,14 @@ class _AuthGateState extends State<AuthGate> {
       }
     });
 
-    // 2) Gestisci subito l’URL corrente (web): #type=recovery oppure ?code=...
+    // 2️⃣ Gestisci subito l’URL corrente (web): #type=recovery oppure ?code=...
     _handleInitialUrl();
   }
 
   Future<void> _handleInitialUrl() async {
     final uri = Uri.base;
 
-    // Riconosci entrambi i formati
+    // Riconosci entrambi i formati (vecchio e nuovo)
     final hasFragmentRecovery = uri.fragment.contains('type=recovery');
     final hasTokenInFragment  = uri.fragment.contains('access_token=');
     final hasQueryCode        = uri.queryParameters['code']?.isNotEmpty == true;
@@ -43,11 +43,8 @@ class _AuthGateState extends State<AuthGate> {
 
     if (hasFragmentRecovery || hasTokenInFragment || hasQueryCode || hasQueryRecovery) {
       try {
-        // Crea la sessione a partire dall’URL (gestisce sia #... che ?code=...)
-        await Supabase.instance.client.auth.getSessionFromUrl(
-          uri,
-          removeParameters: true, // ripulisce l'URL dopo
-        );
+        // ✅ Crea la sessione a partire dall’URL (gestisce sia #... che ?code=...)
+        await Supabase.instance.client.auth.getSessionFromUrl(uri);
       } catch (_) {
         // anche se fallisce, proviamo comunque ad aprire la pagina di update
       }
@@ -83,8 +80,10 @@ class _AuthGateState extends State<AuthGate> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('PlatyTribe',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text(
+                'PlatyTribe',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 onPressed: () =>
