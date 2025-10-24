@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/supabase_singleton.dart';
 
 class PasswordUpdateScreen extends StatefulWidget {
   const PasswordUpdateScreen({super.key});
@@ -10,37 +9,60 @@ class PasswordUpdateScreen extends StatefulWidget {
 }
 
 class _PasswordUpdateScreenState extends State<PasswordUpdateScreen> {
-  final _new1 = TextEditingController();
-  final _new2 = TextEditingController();
+  final _newPass = TextEditingController();
+  final _confirmPass = TextEditingController();
   bool _loading = false;
   String? _error;
 
-  Future<void> _save() async {
-    if (_new1.text.isEmpty || _new2.text.isEmpty) {
-      setState(() => _error = 'Please fill both fields');
+  @override
+  void initState() {
+    super.initState();
+    _restoreSessionIfNeeded();
+  }
+
+  Future<void> _restoreSessionIfNeeded() async {
+    final uri = Uri.base;
+    try {
+      // gestisce sia #access_token=... che ?code=...
+      if (uri.fragment.contains('access_token=') ||
+          uri.queryParameters.containsKey('code')) {
+        await Supabase.instance.client.auth.getSessionFromUrl(uri);
+      }
+    } catch (e) {
+      debugPrint('Session restore failed: $e');
+    }
+  }
+
+  Future<void> _updatePassword() async {
+    final newPass = _newPass.text.trim();
+    final confirm = _confirmPass.text.trim();
+    if (newPass != confirm) {
+      setState(() => _error = "Passwords don't match");
       return;
     }
-    if (_new1.text != _new2.text) {
-      setState(() => _error = 'Passwords do not match');
+    if (newPass.length < 6) {
+      setState(() => _error = "Password too short");
       return;
     }
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
     try {
-      // Con il link email, Supabase crea una recovery session
-      await supa.auth.updateUser(UserAttributes(password: _new1.text.trim()));
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(password: newPass),
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password updated. Please log in.')),
+        const SnackBar(content: Text("Password updated successfully")),
       );
-      // Chiudi la sessione di recovery e torna al login
-      await supa.auth.signOut();
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+      Navigator.pushReplacementNamed(context, '/login');
     } catch (e) {
-      setState(() => _error = '$e');
+      setState(() => _error = "$e");
     } finally {
-      if (mounted) setState(() => _loading = false);
+      setState(() => _loading = false);
     }
   }
 
@@ -53,30 +75,25 @@ class _PasswordUpdateScreenState extends State<PasswordUpdateScreen> {
         child: Column(
           children: [
             TextField(
-              controller: _new1,
+              controller: _newPass,
               obscureText: true,
               decoration: const InputDecoration(labelText: 'New password'),
             ),
+            const SizedBox(height: 12),
             TextField(
-              controller: _new2,
+              controller: _confirmPass,
               obscureText: true,
               decoration: const InputDecoration(labelText: 'Confirm password'),
             ),
             const SizedBox(height: 16),
             if (_error != null)
               Text(_error!, style: const TextStyle(color: Colors.red)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _save,
-                    child: _loading
-                        ? const CircularProgressIndicator()
-                        : const Text('Save new password'),
-                  ),
-                ),
-              ],
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _loading ? null : _updatePassword,
+              child: _loading
+                  ? const CircularProgressIndicator()
+                  : const Text('Save new password'),
             ),
           ],
         ),
