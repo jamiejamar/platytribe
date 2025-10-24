@@ -1,18 +1,19 @@
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
-import 'supabase_singleton.dart';
+import '../env.dart';                   // per Env.siteUrl
+import 'supabase_singleton.dart';      // espone `supa`
 
 class AuthService {
   Session? get session => supa.auth.currentSession;
   User? get user => supa.auth.currentUser;
 
-  // Sign up: crea anche il profilo con username derivato dall'email (non unico)
+  // Sign up + crea/aggiorna profilo base
   Future<AuthResponse> signUp(String email, String password) async {
     final res = await supa.auth.signUp(email: email, password: password);
     final uid = supa.auth.currentUser?.id;
     if (uid != null) {
-      final base = email.split('@').first; // username “visivo”
+      final base = email.split('@').first;
       await supa.from('profiles').upsert({
         'id': uid,
         'username': base,
@@ -30,6 +31,7 @@ class AuthService {
 
   Stream<AuthState> get onAuthStateChange => supa.auth.onAuthStateChange;
 
+  // Guest sign-in
   Future<void> signInGuest() async {
     final id = const Uuid().v4().replaceAll('-', '');
     final email = 'guest-$id@example.com';
@@ -55,16 +57,22 @@ class AuthService {
     });
   }
 
-  /// Sends a password reset email via Supabase
+  /// Send password reset email (force redirect to the update screen)
   Future<void> sendPasswordReset(String email) async {
-    if (email.trim().isEmpty) {
+    final mail = email.trim();
+    if (mail.isEmpty) {
       throw 'Please enter your email first.';
     }
-    try {
-      await supa.auth.resetPasswordForEmail(email.trim());
-    } catch (e) {
-      throw 'Something went wrong while sending the reset email.';
-    }
+
+    // usa Env.siteUrl se presente, altrimenti stringa fissa
+    final base = (Env.siteUrl ?? '').isNotEmpty
+        ? Env.siteUrl
+        : 'https://platytribe.pages.dev';
+
+    await supa.auth.resetPasswordForEmail(
+      mail,
+      redirectTo: '$base#/password_update', // torna direttamente alla schermata di update
+    );
   }
 
   String _randPass(int len) {
