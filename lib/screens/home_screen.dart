@@ -1,3 +1,4 @@
+import 'dart:async'; // per Timer (debounce)
 import 'package:flutter/material.dart';
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
@@ -14,13 +15,21 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _chatSvc = ChatService();
   final _auth = AuthService();
-  final _page = PageController();           // 👈 controller
+  final _page = PageController();
+
+  final _searchCtrl = TextEditingController();
+  Timer? _debounce;
+
   List<ChatModel> _chats = [];
   bool _loading = true;
+  bool _searching = false;
   String? _error;
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final chats = await _chatSvc.fetchChats();
       List<String> myTags = [];
@@ -30,13 +39,69 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       final ranked = SimpleRecommender()
           .rank(chats, userTags: myTags, seed: DateTime.now().millisecondsSinceEpoch);
-      setState(() { _chats = ranked; });
-    } catch (e) { setState(() { _error = '$e'; }); }
-    finally { setState(() { _loading = false; }); }
+      setState(() {
+        _chats = ranked;
+      });
+    } catch (e) {
+      setState(() {
+        _error = '$e';
+      });
+    } finally {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _runSearch(String q) async {
+    if (q.trim().isEmpty) {
+      // Campo vuoto → ricarico feed normale
+      await _load();
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _error = null;
+    });
+    try {
+      final results = await _chatSvc.searchChats(q);
+      setState(() {
+        _chats = results;
+        // reset alla prima pagina quando cambia la lista
+        _page.jumpToPage(0);
+      });
+    } catch (e) {
+      setState(() {
+        _error = '$e';
+      });
+    } finally {
+      setState(() {
+        _searching = false;
+      });
+    }
+  }
+
+  void _onSearchChanged(String _) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      _runSearch(_searchCtrl.text);
+    });
   }
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+    _searchCtrl.addListener(() => _onSearchChanged(_searchCtrl.text));
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchCtrl.dispose();
+    _page.dispose();
+    super.dispose();
+  }
 
   void _next() {
     final i = _page.page?.round() ?? 0;
@@ -74,39 +139,90 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
+    final searchBar = Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: TextField(
+        controller: _searchCtrl,
+        decoration: InputDecoration(
+          hintText: 'Search chats by name or ID…',
+          prefixIcon: const Icon(Icons.search),
+          suffixIcon: (_searchCtrl.text.isNotEmpty)
+              ? IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchCtrl.clear(); // triggerà _load via listener
+                    FocusScope.of(context).unfocus();
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _runSearch(_searchCtrl.text),
+      ),
+    );
+
+    final searchIndicator = (_searching)
+        ? const LinearProgressIndicator(minHeight: 2)
+        : const SizedBox(height: 2);
+
+    Widget bodyContent;
+    if (_loading) {
+      bodyContent = const Center(child: CircularProgressIndicator());
+    } else if (_error != null) {
+      bodyContent = Center(child: Text(_error!));
+    } else if (_chats.isEmpty) {
+      bodyContent = const Center(child: Text('No chats found'));
+    } else {
+      bodyContent = Stack(
+        children: [
+          PageView.builder(
+            controller: _page,
+            scrollDirection: Axis.vertical,
+            itemCount: _chats.length,
+            itemBuilder: (ctx, i) => ChatView(
+              chat: _chats[i],
+              onSwipeUp: _next,
+              onSwipeDown: _prev,
+            ),
+          ),
+          navButtons,
+        ],
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('PlatyTribe'),
         actions: [
           IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/create_chat').then((_) => _load()),
+            onPressed: () =>
+                Navigator.pushNamed(context, '/create_chat').then((_) => _load()),
             icon: const Icon(Icons.add),
           ),
           IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/settings').then((_) => _load()),
+            onPressed: () =>
+                Navigator.pushNamed(context, '/settings').then((_) => _load()),
             icon: const Icon(Icons.settings),
           ),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60),
+          child: Column(
+            children: [
+              searchBar,
+              searchIndicator,
+            ],
+          ),
+        ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : (_error != null
-              ? Center(child: Text(_error!))
-              : Stack(
-                  children: [
-                    PageView.builder(
-                      controller: _page,
-                      scrollDirection: Axis.vertical,
-                      itemCount: _chats.length,
-                      itemBuilder: (ctx, i) => ChatView(
-                        chat: _chats[i],
-                        onSwipeUp: _next,      // 👈 swipe dalla chat
-                        onSwipeDown: _prev,    // 👈 swipe dalla chat
-                      ),
-                    ),
-                    navButtons,               // 👈 bottoni laterali
-                  ],
-                )),
+      body: bodyContent,
     );
   }
 }
