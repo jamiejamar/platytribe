@@ -182,7 +182,7 @@ class ChatService {
       final resTags = await supa
           .from('chats')
           .select('*, chat_tags(tag)')
-          .in_('id', ids);
+          .inFilter('id', ids);
       tagsList = (resTags as List)
           .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
           .toList();
