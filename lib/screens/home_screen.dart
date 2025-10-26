@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Vista split mentre digiti
   Future<void> _runSearch(String q) async {
     final query = q.trim();
     if (query.isEmpty) {
@@ -49,6 +50,28 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final res = await _chatSvc.searchChatsSplit(query);
       setState(() { _split = res; });
+    } catch (e) {
+      setState(() { _error = '$e'; });
+    } finally {
+      setState(() { _searching = false; });
+    }
+  }
+
+  // ENTER: carica feed filtrato (tutto il matching)
+  Future<void> _loadFeedFromQuery(String q) async {
+    final query = q.trim();
+    if (query.isEmpty) {
+      await _load();
+      return;
+    }
+    setState(() { _searching = true; _error = null; });
+    try {
+      final union = await _chatSvc.searchChatsUnion(query);
+      setState(() {
+        _split = null;
+        _chats = union;
+      });
+      _page.jumpToPage(0);
     } catch (e) {
       setState(() { _error = '$e'; });
     } finally {
@@ -92,13 +115,28 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _openFromSearch(ChatModel chat) {
-    // Mostra quella chat direttamente nel feed verticale
-    setState(() {
-      _split = null;
-      _chats = [chat];
-    });
-    _page.jumpToPage(0);
+  // Tap su un risultato split → feed filtrato su tutte le chat che matchano, posizionati su quella
+  Future<void> _openFromSearch(ChatModel tapped) async {
+    final query = _searchCtrl.text.trim();
+    if (query.isEmpty) return;
+
+    try {
+      final union = await _chatSvc.searchChatsUnion(query);
+      final index = union.indexWhere((c) => c.id == tapped.id);
+
+      setState(() {
+        _split = null;
+        _chats = union;
+      });
+
+      if (index >= 0) {
+        _page.jumpToPage(index);
+      } else {
+        _page.jumpToPage(0);
+      }
+    } catch (e) {
+      setState(() { _error = '$e'; });
+    }
   }
 
   Widget _section(String title, List<ChatModel> list) {
@@ -167,7 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
-                    _searchCtrl.clear(); // triggerà _load via listener
+                    _searchCtrl.clear(); // il listener richiama _load()
                     FocusScope.of(context).unfocus();
                   },
                 )
@@ -181,7 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _runSearch(_searchCtrl.text),
+        onSubmitted: (_) => _loadFeedFromQuery(_searchCtrl.text), // ENTER → feed filtrato
       ),
     );
 
@@ -202,6 +240,17 @@ class _HomeScreenState extends State<HomeScreen> {
           _section('Title / ID', s.titleOrId),
           _section('Description', s.description),
           _section('Tags', s.tags),
+          const SizedBox(height: 24),
+          // (facoltativo) bottone per vedere tutti i risultati come feed
+          if (s.titleOrId.isNotEmpty || s.description.isNotEmpty || s.tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: ElevatedButton.icon(
+                onPressed: () => _loadFeedFromQuery(_searchCtrl.text),
+                icon: const Icon(Icons.view_agenda),
+                label: const Text('View all as feed'),
+              ),
+            ),
           const SizedBox(height: 24),
         ],
       );
@@ -255,3 +304,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+

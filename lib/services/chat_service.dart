@@ -182,7 +182,7 @@ class ChatService {
       final resTags = await supa
           .from('chats')
           .select('*, chat_tags(tag)')
-          .inFilter('id', ids);
+          .inFilter('id', ids); // compatibile con postgrest ^2.5.0
       tagsList = (resTags as List)
           .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
           .toList();
@@ -202,5 +202,32 @@ class ChatService {
       description: _dedupe(descList),
       tags: _dedupe(tagsList),
     );
+  }
+
+  /// === UNION: tutte le chat che matchano (Title/ID ∪ Description ∪ Tags) ===
+  Future<List<ChatModel>> searchChatsUnion(String query) async {
+    final split = await searchChatsSplit(query);
+
+    // Manteniamo l'ordine: Title/ID → Description (escludendo già prese) → Tags (escludendo già prese)
+    final seen = <String>{};
+    final union = <ChatModel>[];
+
+    void addAll(List<ChatModel> list) {
+      for (final c in list) {
+        if (!seen.contains(c.id)) {
+          seen.add(c.id);
+          union.add(c);
+        }
+      }
+    }
+
+    addAll(split.titleOrId);
+    addAll(split.description);
+    addAll(split.tags);
+
+    // opzionale: ordina per data recente (commenta se preferisci l'ordine di cui sopra)
+    union.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+    return union;
   }
 }
