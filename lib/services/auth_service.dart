@@ -7,32 +7,26 @@ class AuthService {
   Session? get session => supa.auth.currentSession;
   User? get user => supa.auth.currentUser;
 
-  // ---- Email sign-up: assegna sempre uno username random e crea il profilo
-  Future<AuthResponse> signUp(String email, String password) async {
-    final res = await supa.auth.signUp(email: email, password: password);
+  /// Standard sign up with email + password
+  Future<AuthResponse> signUp(String email, String password) =>
+      supa.auth.signUp(email: email, password: password);
 
-    // Alcuni flussi non ritornano sessione subito → facciamo sign-in
-    if (res.session == null) {
-      await supa.auth.signInWithPassword(email: email, password: password);
-    }
-
-    await _ensureProfile(); // crea profilo + username random se manca
-    return res;
-  }
-
+  /// Sign in with email + password
   Future<AuthResponse> signIn(String email, String password) =>
       supa.auth.signInWithPassword(email: email, password: password);
 
+  /// Sign out current session
   Future<void> signOut() => supa.auth.signOut();
 
+  /// Stream for auth state changes (login, logout, recovery, etc.)
   Stream<AuthState> get onAuthStateChange => supa.auth.onAuthStateChange;
 
-  // ---- Guest login: stesso comportamento (username random)
+  /// Sign in anonymously (guest mode)
   Future<void> signInGuest() async {
     final id = const Uuid().v4().replaceAll('-', '');
     final email = 'guest-$id@example.com';
     final password = _randPass(24);
-    final username = _randomUsername();
+    final username = 'platy-${id.substring(0, 4)}';
 
     final res = await supa.auth.signUp(
       email: email,
@@ -44,60 +38,28 @@ class AuthService {
       await supa.auth.signInWithPassword(email: email, password: password);
     }
 
+    final uid = supa.auth.currentUser!.id;
     await supa.from('profiles').upsert({
-      'id': supa.auth.currentUser!.id,
+      'id': uid,
       'username': username,
-      'display_name': username,
       'is_guest': true,
+      'display_name': username,
     });
   }
 
-  /// Crea profilo con username random se non esiste
-  Future<void> _ensureProfile() async {
-    final u = user;
-    if (u == null) return;
+  /// NEW: Send password reset email
+  Future<void> sendPasswordReset(String email) async {
+    final mail = email.trim();
+    if (mail.isEmpty) throw 'Please enter your email first.';
 
-    final existing = await supa
-        .from('profiles')
-        .select('id, username')
-        .eq('id', u.id)
-        .maybeSingle();
-
-    if (existing == null) {
-      final username = _randomUsername();
-      await supa.from('profiles').insert({
-        'id': u.id,
-        'username': username,
-        'display_name': username,
-        'is_guest': false,
-      });
-    }
+    const base = 'https://platytribe.pages.dev'; // your hosted URL
+    await supa.auth.resetPasswordForEmail(
+      mail,
+      redirectTo: '$base#/password_update',
+    );
   }
 
-  /// Aggiorna lo username
-  Future<void> updateUsername(String newUsername) async {
-    final u = user;
-    if (u == null) return;
-    await supa.from('profiles').update({'username': newUsername}).eq('id', u.id);
-  }
-
-  /// Legge il profilo corrente (username, ecc.)
-  Future<Map<String, dynamic>?> getProfile() async {
-    final u = user;
-    if (u == null) return null;
-    return await supa
-        .from('profiles')
-        .select('id, username, display_name, is_guest')
-        .eq('id', u.id)
-        .maybeSingle();
-  }
-
-  // ---- utils
-  String _randomUsername() {
-    final id = const Uuid().v4().replaceAll('-', '');
-    return 'platy-${id.substring(0, 4)}';
-  }
-
+  /// Helper: random password generator for guests
   String _randPass(int len) {
     const chars =
         'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#%^*-_';
