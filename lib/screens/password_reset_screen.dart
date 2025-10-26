@@ -68,7 +68,6 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            // 👇 Info message (English)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -94,3 +93,4 @@ class _PasswordResetScreenState extends State<PasswordResetScreen> {
     );
   }
 }
+

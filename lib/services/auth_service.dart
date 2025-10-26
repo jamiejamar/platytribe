@@ -7,21 +7,35 @@ class AuthService {
   Session? get session => supa.auth.currentSession;
   User? get user => supa.auth.currentUser;
 
-  /// Standard sign up with email + password
-  Future<AuthResponse> signUp(String email, String password) =>
-      supa.auth.signUp(email: email, password: password);
+  /// Sign up with email + password, ensure profile row exists
+  Future<AuthResponse> signUp(String email, String password) async {
+    final res = await supa.auth.signUp(email: email, password: password);
+
+    // crea/aggiorna profilo di base (serve ai trigger username)
+    final uid = supa.auth.currentUser?.id;
+    if (uid != null) {
+      final base = email.split('@').first;
+      await supa.from('profiles').upsert({
+        'id': uid,
+        'username': base,
+        'is_guest': false,
+        'display_name': base,
+      });
+    }
+    return res;
+  }
 
   /// Sign in with email + password
   Future<AuthResponse> signIn(String email, String password) =>
       supa.auth.signInWithPassword(email: email, password: password);
 
-  /// Sign out current session
+  /// Sign out
   Future<void> signOut() => supa.auth.signOut();
 
-  /// Stream for auth state changes (login, logout, recovery, etc.)
+  /// Auth state changes
   Stream<AuthState> get onAuthStateChange => supa.auth.onAuthStateChange;
 
-  /// Sign in anonymously (guest mode)
+  /// Guest sign-in
   Future<void> signInGuest() async {
     final id = const Uuid().v4().replaceAll('-', '');
     final email = 'guest-$id@example.com';
@@ -47,19 +61,19 @@ class AuthService {
     });
   }
 
-  /// NEW: Send password reset email
+  /// NEW: send password reset email and redirect back to update page
   Future<void> sendPasswordReset(String email) async {
     final mail = email.trim();
     if (mail.isEmpty) throw 'Please enter your email first.';
 
-    const base = 'https://platytribe.pages.dev'; // your hosted URL
+    // usa il tuo dominio pubblico
+    const base = 'https://platytribe.pages.dev';
     await supa.auth.resetPasswordForEmail(
       mail,
       redirectTo: '$base#/password_update',
     );
   }
 
-  /// Helper: random password generator for guests
   String _randPass(int len) {
     const chars =
         'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#%^*-_';
