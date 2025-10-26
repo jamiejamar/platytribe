@@ -1,4 +1,4 @@
-import 'dart:async'; // per Timer (debounce)
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
@@ -24,14 +24,12 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _searching = false;
   String? _error;
 
-  // risultati split (se la query non è vuota)
-  SearchResults? _split;
-
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = null; _split = null; });
+  Future<void> _loadRandomFeed() async {
+    setState(() { _loading = true; _error = null; });
     try {
-      final chats = await _chatSvc.fetchChatsRandom(); // feed casuale
-      setState(() { _chats = chats; });
+      final list = await _chatSvc.fetchChatsRandom();
+      setState(() { _chats = list; });
+      _page.jumpToPage(0);
     } catch (e) {
       setState(() { _error = '$e'; });
     } finally {
@@ -39,38 +37,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Vista split mentre digiti
-  Future<void> _runSearch(String q) async {
+  Future<void> _applySearch(String q) async {
     final query = q.trim();
     if (query.isEmpty) {
-      await _load();
+      await _loadRandomFeed();
       return;
     }
     setState(() { _searching = true; _error = null; });
     try {
-      final res = await _chatSvc.searchChatsSplit(query);
-      setState(() { _split = res; });
-    } catch (e) {
-      setState(() { _error = '$e'; });
-    } finally {
-      setState(() { _searching = false; });
-    }
-  }
-
-  // ENTER: carica feed filtrato (tutto il matching)
-  Future<void> _loadFeedFromQuery(String q) async {
-    final query = q.trim();
-    if (query.isEmpty) {
-      await _load();
-      return;
-    }
-    setState(() { _searching = true; _error = null; });
-    try {
-      final union = await _chatSvc.searchChatsUnion(query);
-      setState(() {
-        _split = null;
-        _chats = union;
-      });
+      final results = await _chatSvc.searchUnified(query);
+      setState(() { _chats = results; });
       _page.jumpToPage(0);
     } catch (e) {
       setState(() { _error = '$e'; });
@@ -82,14 +58,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onSearchChanged(String _) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      _runSearch(_searchCtrl.text);
+      _applySearch(_searchCtrl.text);
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadRandomFeed();
     _searchCtrl.addListener(() => _onSearchChanged(_searchCtrl.text));
   }
 
@@ -113,63 +89,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (i > 0) {
       _page.previousPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
     }
-  }
-
-  // Tap su un risultato split → feed filtrato su tutte le chat che matchano, posizionati su quella
-  Future<void> _openFromSearch(ChatModel tapped) async {
-    final query = _searchCtrl.text.trim();
-    if (query.isEmpty) return;
-
-    try {
-      final union = await _chatSvc.searchChatsUnion(query);
-      final index = union.indexWhere((c) => c.id == tapped.id);
-
-      setState(() {
-        _split = null;
-        _chats = union;
-      });
-
-      if (index >= 0) {
-        _page.jumpToPage(index);
-      } else {
-        _page.jumpToPage(0);
-      }
-    } catch (e) {
-      setState(() { _error = '$e'; });
-    }
-  }
-
-  Widget _section(String title, List<ChatModel> list) {
-    if (list.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-            child: Text(title,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-          ),
-          ...list.map((c) {
-            final subtitlePieces = <String>[];
-            if ((c.description ?? '').isNotEmpty) {
-              final d = c.description!;
-              subtitlePieces.add(d.length > 80 ? '${d.substring(0, 80)}…' : d);
-            }
-            if (c.tags.isNotEmpty) {
-              subtitlePieces.add(c.tags.take(5).join(', '));
-            }
-            final subtitle = subtitlePieces.isEmpty ? null : subtitlePieces.join('  ·  ');
-            return ListTile(
-              title: Text(c.name),
-              subtitle: subtitle == null ? null : Text(subtitle),
-              onTap: () => _openFromSearch(c),
-            );
-          }),
-        ],
-      ),
-    );
   }
 
   @override
@@ -199,13 +118,13 @@ class _HomeScreenState extends State<HomeScreen> {
       child: TextField(
         controller: _searchCtrl,
         decoration: InputDecoration(
-          hintText: 'Search by Title, ID, Description or Tags…',
+          hintText: 'Search by title, description or tags…',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: (_searchCtrl.text.isNotEmpty)
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
-                    _searchCtrl.clear(); // il listener richiama _load()
+                    _searchCtrl.clear();  // torna al feed random
                     FocusScope.of(context).unfocus();
                   },
                 )
@@ -219,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         textInputAction: TextInputAction.search,
-        onSubmitted: (_) => _loadFeedFromQuery(_searchCtrl.text), // ENTER → feed filtrato
+        onSubmitted: (_) => _applySearch(_searchCtrl.text),
       ),
     );
 
@@ -232,32 +151,9 @@ class _HomeScreenState extends State<HomeScreen> {
       bodyContent = const Center(child: CircularProgressIndicator());
     } else if (_error != null) {
       bodyContent = Center(child: Text(_error!));
-    } else if (_split != null && _searchCtrl.text.trim().isNotEmpty) {
-      // Vista risultati split
-      final s = _split!;
-      bodyContent = ListView(
-        children: [
-          _section('Title / ID', s.titleOrId),
-          _section('Description', s.description),
-          _section('Tags', s.tags),
-          const SizedBox(height: 24),
-          // (facoltativo) bottone per vedere tutti i risultati come feed
-          if (s.titleOrId.isNotEmpty || s.description.isNotEmpty || s.tags.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: ElevatedButton.icon(
-                onPressed: () => _loadFeedFromQuery(_searchCtrl.text),
-                icon: const Icon(Icons.view_agenda),
-                label: const Text('View all as feed'),
-              ),
-            ),
-          const SizedBox(height: 24),
-        ],
-      );
     } else if (_chats.isEmpty) {
       bodyContent = const Center(child: Text('No chats found'));
     } else {
-      // Feed verticale con ChatView
       bodyContent = Stack(
         children: [
           PageView.builder(
@@ -281,12 +177,12 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             onPressed: () =>
-                Navigator.pushNamed(context, '/create_chat').then((_) => _load()),
+                Navigator.pushNamed(context, '/create_chat').then((_) => _loadRandomFeed()),
             icon: const Icon(Icons.add),
           ),
           IconButton(
             onPressed: () =>
-                Navigator.pushNamed(context, '/settings').then((_) => _load()),
+                Navigator.pushNamed(context, '/settings').then((_) => _loadRandomFeed()),
             icon: const Icon(Icons.settings),
           ),
         ],
