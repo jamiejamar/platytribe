@@ -1,9 +1,22 @@
+import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/chat.dart';
 import '../models/message.dart';
 import 'supabase_singleton.dart';
 
+class SearchResults {
+  final List<ChatModel> titleOrId;
+  final List<ChatModel> description;
+  final List<ChatModel> tags;
+  const SearchResults({
+    required this.titleOrId,
+    required this.description,
+    required this.tags,
+  });
+}
+
 class ChatService {
+  // === FEED BASE ===
   Future<List<ChatModel>> fetchChats() async {
     final res = await supa
         .from('chats')
@@ -14,14 +27,24 @@ class ChatService {
         .toList();
   }
 
+  /// Chat casuali (shuffle lato client, semplice e stabile)
+  Future<List<ChatModel>> fetchChatsRandom() async {
+    final list = await fetchChats();
+    list.shuffle(Random());
+    return list;
+  }
+
+  // === INTERESSI UTENTE (rimangono, ma non usate nel feed "random") ===
   Future<List<String>> fetchUserInterests(String userId) async {
     final res =
         await supa.from('user_interests').select('tag').eq('user_id', userId);
     return (res as List).map((e) => e['tag'] as String).toList();
   }
 
+  // === CREAZIONE CHAT con description + keywords ===
   Future<String> createChat({
     required String name,
+    String? description,                // NEW
     required List<String> tags,
     String? avatarUrl,
     String? backgroundUrl,
@@ -32,6 +55,7 @@ class ChatService {
         .from('chats')
         .insert({
           'name': name,
+          'description': description,    // NEW
           'avatar_url': avatarUrl,
           'background_url': backgroundUrl,
           'is_group': isGroup,
@@ -39,11 +63,21 @@ class ChatService {
         })
         .select()
         .single();
+
     final chatId = inserted['id'] as String;
-    if (tags.isNotEmpty) {
-      await supa.from('chat_tags').insert(tags
-          .map((t) => {'chat_id': chatId, 'tag': t.trim().toLowerCase()})
-          .toList());
+
+    final cleaned = tags
+        .map((t) => t.trim())
+        .where((t) => t.isNotEmpty)
+        .map((t) => t.toLowerCase())
+        .toList();
+
+    if (cleaned.isNotEmpty) {
+      await supa.from('chat_tags').insert(
+            cleaned
+                .map((t) => {'chat_id': chatId, 'tag': t})
+                .toList(),
+          );
     }
     return chatId;
   }
@@ -99,35 +133,74 @@ class ChatService {
     }
   }
 
-  // ---------------------------
-  // 🔎 SEARCH by name or ID
-  // ---------------------------
-  Future<List<ChatModel>> searchChats(String query) async {
+  // === SEARCH SPLIT: Title/ID, Description, Tags ===
+  Future<SearchResults> searchChatsSplit(String query) async {
     final q = query.trim();
-    if (q.isEmpty) return fetchChats();
-
-    // match UUID (greedy/robusto: 36 char con trattini)
-    final isUuid = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(q);
-
-    dynamic res;
-    if (isUuid) {
-      // Ricerca esatta per ID
-      res = await supa
-          .from('chats')
-          .select('*, chat_tags(tag)')
-          .eq('id', q)
-          .limit(1);
-    } else {
-      // Ricerca per nome (case-insensitive, contiene)
-      res = await supa
-          .from('chats')
-          .select('*, chat_tags(tag)')
-          .ilike('name', '%$q%')
-          .order('created_at', ascending: false);
+    if (q.isEmpty) {
+      final random = await fetchChatsRandom();
+      return SearchResults(titleOrId: random, description: const [], tags: const []);
     }
 
-    return (res as List)
+    final isUuid = RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(q);
+
+    // 1) Title/ID
+    dynamic resTitle;
+    if (isUuid) {
+      resTitle = await supa
+          .from('chats')
+          .select('*, chat_tags(tag)')
+          .eq('id', q);
+    } else {
+      resTitle = await supa
+          .from('chats')
+          .select('*, chat_tags(tag)')
+          .ilike('name', '%$q%');
+    }
+    final titleList = (resTitle as List)
         .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
         .toList();
+
+    // 2) Description
+    final resDesc = await supa
+        .from('chats')
+        .select('*, chat_tags(tag)')
+        .ilike('description', '%$q%');
+    final descList = (resDesc as List)
+        .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
+        .toList();
+
+    // 3) Tags (due-step: prendo ids, poi carico chats)
+    final resTagsIds =
+        await supa.from('chat_tags').select('chat_id').ilike('tag', '%$q%');
+    final ids = (resTagsIds as List)
+        .map((e) => e['chat_id'] as String)
+        .toSet()
+        .toList();
+
+    List<ChatModel> tagsList = [];
+    if (ids.isNotEmpty) {
+      final resTags = await supa
+          .from('chats')
+          .select('*, chat_tags(tag)')
+          .in_('id', ids);
+      tagsList = (resTags as List)
+          .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    // Dedupe per sezione (id unici dentro la singola lista)
+    List<ChatModel> _dedupe(List<ChatModel> list) {
+      final map = <String, ChatModel>{};
+      for (final c in list) {
+        map[c.id] = c;
+      }
+      return map.values.toList();
+    }
+
+    return SearchResults(
+      titleOrId: _dedupe(titleList),
+      description: _dedupe(descList),
+      tags: _dedupe(tagsList),
+    );
   }
 }

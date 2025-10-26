@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
 import '../models/chat.dart';
-import '../algorithm/recommender.dart';
 import '../widgets/chat_view.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -25,59 +24,35 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _searching = false;
   String? _error;
 
+  // risultati split (se la query non è vuota)
+  SearchResults? _split;
+
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; _split = null; });
     try {
-      final chats = await _chatSvc.fetchChats();
-      List<String> myTags = [];
-      final user = _auth.user;
-      if (user != null) {
-        myTags = await _chatSvc.fetchUserInterests(user.id);
-      }
-      final ranked = SimpleRecommender()
-          .rank(chats, userTags: myTags, seed: DateTime.now().millisecondsSinceEpoch);
-      setState(() {
-        _chats = ranked;
-      });
+      final chats = await _chatSvc.fetchChatsRandom(); // feed casuale
+      setState(() { _chats = chats; });
     } catch (e) {
-      setState(() {
-        _error = '$e';
-      });
+      setState(() { _error = '$e'; });
     } finally {
-      setState(() {
-        _loading = false;
-      });
+      setState(() { _loading = false; });
     }
   }
 
   Future<void> _runSearch(String q) async {
-    if (q.trim().isEmpty) {
-      // Campo vuoto → ricarico feed normale
+    final query = q.trim();
+    if (query.isEmpty) {
       await _load();
       return;
     }
-    setState(() {
-      _searching = true;
-      _error = null;
-    });
+    setState(() { _searching = true; _error = null; });
     try {
-      final results = await _chatSvc.searchChats(q);
-      setState(() {
-        _chats = results;
-        // reset alla prima pagina quando cambia la lista
-        _page.jumpToPage(0);
-      });
+      final res = await _chatSvc.searchChatsSplit(query);
+      setState(() { _split = res; });
     } catch (e) {
-      setState(() {
-        _error = '$e';
-      });
+      setState(() { _error = '$e'; });
     } finally {
-      setState(() {
-        _searching = false;
-      });
+      setState(() { _searching = false; });
     }
   }
 
@@ -117,6 +92,48 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _openFromSearch(ChatModel chat) {
+    // Mostra quella chat direttamente nel feed verticale
+    setState(() {
+      _split = null;
+      _chats = [chat];
+    });
+    _page.jumpToPage(0);
+  }
+
+  Widget _section(String title, List<ChatModel> list) {
+    if (list.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            child: Text(title,
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          ),
+          ...list.map((c) {
+            final subtitlePieces = <String>[];
+            if ((c.description ?? '').isNotEmpty) {
+              final d = c.description!;
+              subtitlePieces.add(d.length > 80 ? '${d.substring(0, 80)}…' : d);
+            }
+            if (c.tags.isNotEmpty) {
+              subtitlePieces.add(c.tags.take(5).join(', '));
+            }
+            final subtitle = subtitlePieces.isEmpty ? null : subtitlePieces.join('  ·  ');
+            return ListTile(
+              title: Text(c.name),
+              subtitle: subtitle == null ? null : Text(subtitle),
+              onTap: () => _openFromSearch(c),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final navButtons = Positioned(
@@ -144,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: TextField(
         controller: _searchCtrl,
         decoration: InputDecoration(
-          hintText: 'Search chats by name or ID…',
+          hintText: 'Search by Title, ID, Description or Tags…',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: (_searchCtrl.text.isNotEmpty)
               ? IconButton(
@@ -177,9 +194,21 @@ class _HomeScreenState extends State<HomeScreen> {
       bodyContent = const Center(child: CircularProgressIndicator());
     } else if (_error != null) {
       bodyContent = Center(child: Text(_error!));
+    } else if (_split != null && _searchCtrl.text.trim().isNotEmpty) {
+      // Vista risultati split
+      final s = _split!;
+      bodyContent = ListView(
+        children: [
+          _section('Title / ID', s.titleOrId),
+          _section('Description', s.description),
+          _section('Tags', s.tags),
+          const SizedBox(height: 24),
+        ],
+      );
     } else if (_chats.isEmpty) {
       bodyContent = const Center(child: Text('No chats found'));
     } else {
+      // Feed verticale con ChatView
       bodyContent = Stack(
         children: [
           PageView.builder(
