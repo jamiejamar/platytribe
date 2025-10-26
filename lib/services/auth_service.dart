@@ -7,11 +7,8 @@ class AuthService {
   Session? get session => supa.auth.currentSession;
   User? get user => supa.auth.currentUser;
 
-  /// Sign up with email + password, ensure profile row exists
   Future<AuthResponse> signUp(String email, String password) async {
     final res = await supa.auth.signUp(email: email, password: password);
-
-    // crea/aggiorna profilo di base (serve ai trigger username)
     final uid = supa.auth.currentUser?.id;
     if (uid != null) {
       final base = email.split('@').first;
@@ -25,17 +22,13 @@ class AuthService {
     return res;
   }
 
-  /// Sign in with email + password
   Future<AuthResponse> signIn(String email, String password) =>
       supa.auth.signInWithPassword(email: email, password: password);
 
-  /// Sign out
   Future<void> signOut() => supa.auth.signOut();
 
-  /// Auth state changes
   Stream<AuthState> get onAuthStateChange => supa.auth.onAuthStateChange;
 
-  /// Guest sign-in
   Future<void> signInGuest() async {
     final id = const Uuid().v4().replaceAll('-', '');
     final email = 'guest-$id@example.com';
@@ -61,12 +54,11 @@ class AuthService {
     });
   }
 
-  /// NEW: send password reset email and redirect back to update page
+  /// ✅ This is the missing method that caused the build error
   Future<void> sendPasswordReset(String email) async {
     final mail = email.trim();
     if (mail.isEmpty) throw 'Please enter your email first.';
 
-    // usa il tuo dominio pubblico
     const base = 'https://platytribe.pages.dev';
     await supa.auth.resetPasswordForEmail(
       mail,
