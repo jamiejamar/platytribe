@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../services/chat_service.dart';
 import '../services/auth_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -10,63 +9,117 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _auth = AuthService();
-  final _chatSvc = ChatService();
-  final _tagsCtrl = TextEditingController();
-  bool _saving = false;
+  final _usernameCtrl = TextEditingController();
 
-  Future<void> _load() async {
-    final user = _auth.user;
-    if (user == null) return;
-    final tags = await _chatSvc.fetchUserInterests(user.id);
-    _tagsCtrl.text = tags.join(', ');
-  }
+  String? _uid;
+  bool _loading = true;
+  bool _saving = false;
+  String? _error;
 
   @override
-  void initState() { super.initState(); _load(); }
+  void initState() {
+    super.initState();
+    _load();
+  }
 
-  Future<void> _save() async {
-    setState(() => _saving = true);
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
     try {
-      final tags = _tagsCtrl.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      await _chatSvc.saveInterests(tags);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Interessi salvati')));
+      final u = _auth.user;
+      _uid = u?.id;
+
+      final p = await _auth.getProfile();
+      if (p != null && p['username'] != null) {
+        _usernameCtrl.text = '${p['username']}';
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      _error = '$e';
     } finally {
-      setState(() => _saving = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _logout() async {
-    await _auth.signOut();
-    if (!mounted) return;
-    Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
+  Future<void> _save() async {
+    setState(() { _saving = true; _error = null; });
+    try {
+      final username = _usernameCtrl.text.trim();
+      if (username.isEmpty) throw 'Username cannot be empty.';
+      await _auth.updateUsername(username);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Username updated')),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _usernameCtrl.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final logged = _auth.user != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Impostazioni')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('UID: ${_auth.user?.id ?? '-'}'),
-            const SizedBox(height: 6),
-            TextField(controller: _tagsCtrl, decoration: const InputDecoration(labelText: 'Hashtag interessi (separati da virgola)'), enabled: logged),
-            const SizedBox(height: 12),
-            Row(children: [
-              ElevatedButton(onPressed: logged && !_saving ? _save : null, child: const Text('Salva')),
-              const SizedBox(width: 12),
-              OutlinedButton(onPressed: _logout, child: const Text('Logout'))
-            ]),
-          ],
-        ),
-      ),
+      appBar: AppBar(title: const Text('Settings')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_uid != null)
+                    Text('UID: $_uid',
+                        style: Theme.of(context).textTheme.bodySmall),
+
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _usernameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Username',
+                      hintText: 'e.g., platy-1a2b',
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  if (_error != null)
+                    Text(_error!, style: const TextStyle(color: Colors.red)),
+
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _saving ? null : _save,
+                          child: _saving
+                              ? const CircularProgressIndicator()
+                              : const Text('Save'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      OutlinedButton(
+                        onPressed: _saving
+                            ? null
+                            : () async {
+                                await _auth.signOut();
+                                if (!mounted) return;
+                                Navigator.pushNamedAndRemoveUntil(
+                                    context, '/login', (_) => false);
+                              },
+                        child: const Text('Logout'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }

@@ -1,26 +1,22 @@
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
-import '../env.dart';                   // per Env.siteUrl
-import 'supabase_singleton.dart';      // espone `supa`
+import 'supabase_singleton.dart';
 
 class AuthService {
   Session? get session => supa.auth.currentSession;
   User? get user => supa.auth.currentUser;
 
-  // Sign up + crea/aggiorna profilo base
+  // ---- Email sign-up: assegna sempre uno username random e crea il profilo
   Future<AuthResponse> signUp(String email, String password) async {
     final res = await supa.auth.signUp(email: email, password: password);
-    final uid = supa.auth.currentUser?.id;
-    if (uid != null) {
-      final base = email.split('@').first;
-      await supa.from('profiles').upsert({
-        'id': uid,
-        'username': base,
-        'is_guest': false,
-        'display_name': base,
-      });
+
+    // Alcuni flussi non ritornano sessione subito → facciamo sign-in
+    if (res.session == null) {
+      await supa.auth.signInWithPassword(email: email, password: password);
     }
+
+    await _ensureProfile(); // crea profilo + username random se manca
     return res;
   }
 
@@ -31,12 +27,12 @@ class AuthService {
 
   Stream<AuthState> get onAuthStateChange => supa.auth.onAuthStateChange;
 
-  // Guest sign-in
+  // ---- Guest login: stesso comportamento (username random)
   Future<void> signInGuest() async {
     final id = const Uuid().v4().replaceAll('-', '');
     final email = 'guest-$id@example.com';
     final password = _randPass(24);
-    final username = 'platy-${id.substring(0, 4)}';
+    final username = _randomUsername();
 
     final res = await supa.auth.signUp(
       email: email,
@@ -48,31 +44,58 @@ class AuthService {
       await supa.auth.signInWithPassword(email: email, password: password);
     }
 
-    final uid = supa.auth.currentUser!.id;
     await supa.from('profiles').upsert({
-      'id': uid,
+      'id': supa.auth.currentUser!.id,
       'username': username,
-      'is_guest': true,
       'display_name': username,
+      'is_guest': true,
     });
   }
 
-  /// Send password reset email (force redirect to the update screen)
-  Future<void> sendPasswordReset(String email) async {
-    final mail = email.trim();
-    if (mail.isEmpty) {
-      throw 'Please enter your email first.';
+  /// Crea profilo con username random se non esiste
+  Future<void> _ensureProfile() async {
+    final u = user;
+    if (u == null) return;
+
+    final existing = await supa
+        .from('profiles')
+        .select('id, username')
+        .eq('id', u.id)
+        .maybeSingle();
+
+    if (existing == null) {
+      final username = _randomUsername();
+      await supa.from('profiles').insert({
+        'id': u.id,
+        'username': username,
+        'display_name': username,
+        'is_guest': false,
+      });
     }
+  }
 
-    // usa Env.siteUrl se presente, altrimenti stringa fissa
-    final base = (Env.siteUrl ?? '').isNotEmpty
-        ? Env.siteUrl
-        : 'https://platytribe.pages.dev';
+  /// Aggiorna lo username
+  Future<void> updateUsername(String newUsername) async {
+    final u = user;
+    if (u == null) return;
+    await supa.from('profiles').update({'username': newUsername}).eq('id', u.id);
+  }
 
-    await supa.auth.resetPasswordForEmail(
-      mail,
-      redirectTo: '$base#/password_update', // torna direttamente alla schermata di update
-    );
+  /// Legge il profilo corrente (username, ecc.)
+  Future<Map<String, dynamic>?> getProfile() async {
+    final u = user;
+    if (u == null) return null;
+    return await supa
+        .from('profiles')
+        .select('id, username, display_name, is_guest')
+        .eq('id', u.id)
+        .maybeSingle();
+  }
+
+  // ---- utils
+  String _randomUsername() {
+    final id = const Uuid().v4().replaceAll('-', '');
+    return 'platy-${id.substring(0, 4)}';
   }
 
   String _randPass(int len) {
