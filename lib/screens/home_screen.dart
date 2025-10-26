@@ -1,5 +1,7 @@
+// lib/screens/home_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+
 import '../services/chat_service.dart';
 import '../services/auth_service.dart';
 import '../models/chat.dart';
@@ -24,49 +26,11 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _searching = false;
   String? _error;
 
-  Future<void> _loadRandomFeed() async {
-    setState(() { _loading = true; _error = null; });
-    try {
-      final list = await _chatSvc.fetchChatsRandom();
-      setState(() { _chats = list; });
-      _page.jumpToPage(0);
-    } catch (e) {
-      setState(() { _error = '$e'; });
-    } finally {
-      setState(() { _loading = false; });
-    }
-  }
-
-  Future<void> _applySearch(String q) async {
-    final query = q.trim();
-    if (query.isEmpty) {
-      await _loadRandomFeed();
-      return;
-    }
-    setState(() { _searching = true; _error = null; });
-    try {
-      final results = await _chatSvc.searchUnified(query);
-      setState(() { _chats = results; });
-      _page.jumpToPage(0);
-    } catch (e) {
-      setState(() { _error = '$e'; });
-    } finally {
-      setState(() { _searching = false; });
-    }
-  }
-
-  void _onSearchChanged(String _) {
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
-      _applySearch(_searchCtrl.text);
-    });
-  }
-
   @override
   void initState() {
     super.initState();
     _loadRandomFeed();
-    _searchCtrl.addListener(() => _onSearchChanged(_searchCtrl.text));
+    _searchCtrl.addListener(_onSearchChanged);
   }
 
   @override
@@ -77,17 +41,90 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // ---------- FIX: salta alla prima pagina solo quando il PageView è pronto
+  void _jumpToFirst() {
+    if (_chats.isEmpty) return;
+    if (_page.hasClients) {
+      _page.jumpToPage(0);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _page.hasClients && _chats.isNotEmpty) {
+          _page.jumpToPage(0);
+        }
+      });
+    }
+  }
+
+  // ---------- FEED RANDOM
+  Future<void> _loadRandomFeed() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await _chatSvc.fetchChatsRandom();
+      setState(() => _chats = list);
+      _jumpToFirst(); // usa il fix
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ---------- SEARCH (semplificata: unisce titolo/descrizione/tag)
+  Future<void> _applySearch(String raw) async {
+    final q = raw.trim();
+    if (q.isEmpty) {
+      await _loadRandomFeed();
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _error = null;
+    });
+    try {
+      // Usa la tua search split e unisci risultati unici per id
+      final split = await _chatSvc.searchChatsSplit(q);
+      final map = <String, ChatModel>{};
+      for (final c in split.titleOrId) map[c.id] = c;
+      for (final c in split.description) map[c.id] = c;
+      for (final c in split.tags) map[c.id] = c;
+      final merged = map.values.toList();
+
+      setState(() => _chats = merged);
+      _jumpToFirst(); // usa il fix
+    } catch (e) {
+      setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  void _onSearchChanged() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      _applySearch(_searchCtrl.text);
+    });
+  }
+
   void _next() {
     final i = _page.page?.round() ?? 0;
     if (i < _chats.length - 1) {
-      _page.nextPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      _page.nextPage(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
     }
   }
 
   void _prev() {
     final i = _page.page?.round() ?? 0;
     if (i > 0) {
-      _page.previousPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+      _page.previousPage(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -124,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
-                    _searchCtrl.clear();  // torna al feed random
+                    _searchCtrl.clear(); // torni al feed casuale
                     FocusScope.of(context).unfocus();
                   },
                 )
@@ -142,9 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    final searchIndicator = (_searching)
-        ? const LinearProgressIndicator(minHeight: 2)
-        : const SizedBox(height: 2);
+    final searchIndicator =
+        _searching ? const LinearProgressIndicator(minHeight: 2) : const SizedBox(height: 2);
 
     Widget bodyContent;
     if (_loading) {
@@ -200,4 +236,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
