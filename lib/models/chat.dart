@@ -1,7 +1,7 @@
 class ChatModel {
   final String id;
   final String name;
-  final String? description;           // NEW
+  final String? description;          // NEW
   final String? avatarUrl;
   final String? backgroundUrl;
   final bool isGroup;
@@ -12,7 +12,7 @@ class ChatModel {
   ChatModel({
     required this.id,
     required this.name,
-    this.description,
+    this.description,                  // NEW
     this.avatarUrl,
     this.backgroundUrl,
     required this.isGroup,
