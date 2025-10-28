@@ -18,7 +18,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _saving = false;
   String? _error;
 
-  // liste
   List<ChatModel> _myChats = const [];
   List<ChatModel> _followedChats = const [];
 
@@ -40,48 +39,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _error = null;
     });
     try {
-      // profilo / username
       final u = _auth.user;
-      _uid = u?.id;
+      if (u == null) throw 'User not logged in';
+      _uid = u.id;
 
       final p = await _auth.getProfile();
       if (p != null && p['username'] != null) {
         _usernameCtrl.text = '${p['username']}';
       }
 
-      // --- le mie chat (create_by = me) ---
-      if (_uid != null) {
+      // === LE MIE CHAT ===
+      final myRows = await supa
+          .from('chats')
+          .select('id,name,avatar_url,background_url,is_group,created_by,created_at, chat_tags(tag)')
+          .eq('created_by', _uid!) // 👈 forziamo non-null
+          .order('created_at', ascending: false);
+
+      _myChats = (myRows as List)
+          .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
+          .toList();
+
+      // === CHAT SEGUITE ===
+      final idsRes = await supa
+          .from('chat_followers')
+          .select('chat_id')
+          .eq('user_id', _uid!); // 👈 anche qui
+
+      final ids = (idsRes as List).map((e) => e['chat_id'] as String).toList();
+
+      if (ids.isNotEmpty) {
         final rows = await supa
             .from('chats')
             .select('id,name,avatar_url,background_url,is_group,created_by,created_at, chat_tags(tag)')
-            .eq('created_by', _uid)
-            .order('created_at', ascending: false);
-        _myChats = (rows as List)
+            .inFilter('id', ids);
+        _followedChats = (rows as List)
             .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
             .toList();
-      }
-
-      // --- chat seguite ---
-      if (_uid != null) {
-        final idsRes = await supa
-            .from('chat_followers')
-            .select('chat_id')
-            .eq('user_id', _uid);
-        final ids = (idsRes as List).map((e) => e['chat_id'] as String).toList();
-
-        if (ids.isNotEmpty) {
-          final rows = await supa
-              .from('chats')
-              .select('id,name,avatar_url,background_url,is_group,created_by,created_at, chat_tags(tag)')
-              .inFilter('id', ids);
-          _followedChats = (rows as List)
-              .map((e) => ChatModel.fromMap(e as Map<String, dynamic>))
-              .toList();
-          // ordina un minimo
-          _followedChats.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        } else {
-          _followedChats = const [];
-        }
+        _followedChats.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      } else {
+        _followedChats = const [];
       }
     } catch (e) {
       _error = '$e';
@@ -132,7 +128,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text('• ${c.name}',
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontSize: 14)),
-                    // 👇 ID in piccolo e grigio
                     Text(
                       c.id,
                       style: const TextStyle(color: Colors.black45, fontSize: 11),
@@ -164,8 +159,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Text('UID: $_uid',
                           style: Theme.of(context).textTheme.bodySmall),
                     const SizedBox(height: 12),
-
-                    // Username
                     TextField(
                       controller: _usernameCtrl,
                       decoration: const InputDecoration(
@@ -176,7 +169,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     if (_error != null)
                       Text(_error!, style: const TextStyle(color: Colors.red)),
-
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -202,8 +194,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ],
                     ),
-
-                    // Liste
                     _chatList('My Chats', _myChats),
                     _chatList('Followed Chats', _followedChats),
                   ],
