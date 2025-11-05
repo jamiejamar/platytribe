@@ -3,7 +3,6 @@ import '../services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
-
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
@@ -45,26 +44,55 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Log in')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            TextField(controller: _email, decoration: const InputDecoration(labelText: 'Email')),
-            TextField(controller: _password, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
             const SizedBox(height: 16),
-            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+
+            // 🦦 Mascotte in alto
+            Center(
+              child: Image.asset(
+                'assets/platy.png',   // assicurati che esista in assets/
+                height: 140,
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(labelText: 'Email'),
+            ),
+            TextField(
+              controller: _password,
+              decoration: const InputDecoration(labelText: 'Password'),
+              obscureText: true,
+            ),
+            const SizedBox(height: 16),
+
+            if (_error != null)
+              Text(_error!, style: const TextStyle(color: Colors.red)),
+
             const SizedBox(height: 8),
+
             Row(
               children: [
                 Expanded(
                   child: ElevatedButton(
                     onPressed: _loading ? null : _signin,
-                    child: _loading ? const CircularProgressIndicator() : const Text('Log in'),
+                    child: _loading
+                        ? const CircularProgressIndicator()
+                        : const Text('Log in'),
                   ),
                 ),
               ],
             ),
+
             const SizedBox(height: 12),
+
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -79,7 +107,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ],
             ),
+
             const Divider(height: 32),
+
             TextButton(
               onPressed: _loading ? null : _guest,
               child: const Text('Continue as Guest'),
